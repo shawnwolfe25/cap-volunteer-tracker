@@ -141,6 +141,8 @@ export default function GroupEntry() {
               <label className="cap-label">Date</label>
               <input
                 type="date"
+                min="2000-01-01"
+                max={new Date().toLocaleDateString('en-CA')}
                 className="cap-input"
                 value={form.date}
                 onChange={(e) => setForm({ ...form, date: e.target.value })}

@@ -1,5 +1,5 @@
 import { getSessionUser } from '../_lib/auth.js';
-import { getPendingEntries, getCadet } from '../_lib/model.js';
+import { getPendingEntries, getCadetsByIds } from '../_lib/model.js';
 
 export default async function handler(req, res) {
   const user = await getSessionUser(req);
@@ -15,12 +15,12 @@ export default async function handler(req, res) {
     visible = all.filter((e) => linked.has(e.cadetId));
   }
 
-  const withCadet = await Promise.all(
-    visible.map(async (e) => {
-      const cadet = await getCadet(e.cadetId);
-      return { ...e, cadetName: cadet ? `${cadet.firstName} ${cadet.lastName}` : 'Unknown cadet' };
-    })
-  );
+  // One pipelined lookup for all the cadets involved, not one Upstash call per entry.
+  const cadets = await getCadetsByIds(visible.map((e) => e.cadetId));
+  const withCadet = visible.map((e) => {
+    const cadet = cadets.get(e.cadetId);
+    return { ...e, cadetName: cadet ? `${cadet.firstName} ${cadet.lastName}` : 'Unknown cadet' };
+  });
 
   withCadet.sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt));
   return res.status(200).json({ entries: withCadet });

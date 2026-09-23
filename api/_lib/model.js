@@ -29,6 +29,22 @@ export async function getCadet(id) {
   return typeof raw === 'string' ? JSON.parse(raw) : raw;
 }
 
+// Many cadets in one pipeline round trip. Returns a Map of id -> cadet; ids that
+// don't exist are simply missing from it.
+export async function getCadetsByIds(ids) {
+  const unique = [...new Set(ids)];
+  const out = new Map();
+  if (unique.length === 0) return out;
+  const pipeline = db().pipeline();
+  unique.forEach((id) => pipeline.get(`cadets:${id}`));
+  const results = await pipeline.exec();
+  results.forEach((r, i) => {
+    const c = typeof r === 'string' ? JSON.parse(r) : r;
+    if (c) out.set(unique[i], c);
+  });
+  return out;
+}
+
 export async function getAllCadets() {
   const redis = db();
   const ids = await redis.smembers('cadets:index');
@@ -89,6 +105,22 @@ export function summarizeHours(entries) {
     byYear[year] = round1((byYear[year] || 0) + Number(e.hours || 0));
   });
   return { totalVerified, totalPending, byYear };
+}
+
+const EARLIEST_ENTRY_DATE = '2000-01-01';
+
+// Entry dates must be a real YYYY-MM-DD calendar date, not in the future. "Today" is
+// judged one day ahead of UTC so an evening entry from Central time (already tomorrow
+// in UTC) isn't rejected. Returns an error message, or null when the date is fine.
+export function entryDateError(date) {
+  const s = String(date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return 'Enter the date as YYYY-MM-DD.';
+  const d = new Date(`${s}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) return 'That date doesn’t exist.';
+  if (s < EARLIEST_ENTRY_DATE) return 'That date is too far in the past.';
+  const latest = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  if (s > latest) return 'Hours can’t be logged for a future date.';
+  return null;
 }
 
 function round1(n) {

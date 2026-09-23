@@ -5,6 +5,7 @@ import {
   summarizeHours,
   ribbonProgress,
   saveEntry,
+  entryDateError,
 } from '../_lib/model.js';
 
 export default async function handler(req, res) {
@@ -47,6 +48,8 @@ export default async function handler(req, res) {
     if (!date || !activity || !h || h <= 0 || h > 24) {
       return res.status(400).json({ error: 'Provide a date, activity, and hours between 0 and 24.' });
     }
+    const dateError = entryDateError(date);
+    if (dateError) return res.status(400).json({ error: dateError });
 
     const entry = {
       id: randomToken(10),

@@ -8,8 +8,15 @@ export function randomToken(bytes = 24) {
   return Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// 6-digit login code from the crypto RNG (Math.random isn't unpredictable enough
+// for a secret). Rejection sampling keeps every code 000000-999999 equally likely.
 export function randomCode() {
-  return String(Math.floor(100000 + Math.random() * 900000)); // 6-digit
+  const arr = new Uint32Array(1);
+  const limit = Math.floor(0x100000000 / 1000000) * 1000000;
+  do {
+    crypto.getRandomValues(arr);
+  } while (arr[0] >= limit);
+  return String(arr[0] % 1000000).padStart(6, '0');
 }
 
 export function normEmail(email) {

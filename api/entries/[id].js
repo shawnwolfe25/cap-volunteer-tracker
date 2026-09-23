@@ -1,5 +1,5 @@
 import { getSessionUser, canEditEntry, canVerifyFor } from '../_lib/auth.js';
-import { getEntry, getCadet, saveEntry, deleteEntry } from '../_lib/model.js';
+import { getEntry, getCadet, saveEntry, deleteEntry, entryDateError } from '../_lib/model.js';
 
 export default async function handler(req, res) {
   const user = await getSessionUser(req);
@@ -32,7 +32,11 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'You cannot edit this entry.' });
     }
     const { date, hours, activity, organization, location, notes } = req.body || {};
-    if (date) entry.date = date;
+    if (date) {
+      const dateError = entryDateError(date);
+      if (dateError) return res.status(400).json({ error: dateError });
+      entry.date = date;
+    }
     if (hours !== undefined) {
       const h = Number(hours);
       if (!h || h <= 0 || h > 24) return res.status(400).json({ error: 'Hours must be between 0 and 24.' });
