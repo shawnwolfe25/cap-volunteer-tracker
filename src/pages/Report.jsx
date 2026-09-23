@@ -30,6 +30,11 @@ export default function Report() {
 
       <div className="cap-card p-8 print:shadow-none print:border-none">
         <div className="text-center border-b pb-4 mb-4">
+          <img
+            src="/squadron-patch.png"
+            alt="Springfield Composite Squadron patch"
+            className="w-20 h-20 object-contain mx-auto mb-2"
+          />
           <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Civil Air Patrol</div>
           <h1 className="text-xl font-display font-semibold text-cap-blue">
             Volunteer Service Hours Report
@@ -46,7 +51,7 @@ export default function Report() {
           </div>
           <div>
             <div className="text-slate-500">CAPID</div>
-            <div className="font-semibold">{cadet.capid || '—'}</div>
+            <div className="font-semibold">{cadet.capid}</div>
           </div>
           <div>
             <div className="text-slate-500">Total verified hours</div>
@@ -87,7 +92,7 @@ export default function Report() {
 
         <p className="text-xs text-slate-400">
           Generated from the IL-036 Volunteer Hours Tracker. Only verified hours are shown. Use this summary to
-          complete CAPF 2a for Community Service Ribbon award/clasp submission through the chain of command.
+          complete CAPF 2a for Volunteer Service Ribbon award/clasp submission through the chain of command.
         </p>
       </div>
     </div>
