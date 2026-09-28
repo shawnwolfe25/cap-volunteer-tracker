@@ -32,7 +32,7 @@ export default async function handler(req, res) {
       canLogForThisCadet: canLogFor(user, member),
       canVerify: canVerifyFor(user, member),
       canAutoVerify: isSeniorLike && !isOwnRecord,
-      canArchive: isSeniorLike,
+      canArchive: user.role === 'admin',
     });
   }
 

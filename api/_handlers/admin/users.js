@@ -1,7 +1,8 @@
 import { getSessionUser, normEmail } from '../../_lib/auth.js';
-import { getAllUsers, saveUser, getUserByEmail, getCadet } from '../../_lib/model.js';
+import { getUserByEmail } from '../../_lib/model.js';
 import { db } from '../../_lib/redis.js';
 
+// Admin-only login-code lookup. Adding and editing accounts lives in people.js.
 export default async function handler(req, res) {
   const user = await getSessionUser(req);
   if (!user) return res.status(401).json({ error: 'Not signed in.' });
@@ -38,42 +39,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const users = await getAllUsers();
-    return res.status(200).json({ users });
-  }
-
-  if (req.method === 'POST') {
-    const { email, name, role, linkedCadetIds } = req.body || {};
-    const normalized = normEmail(email);
-    if (!normalized || !normalized.includes('@')) {
-      return res.status(400).json({ error: 'Valid email required.' });
-    }
-    if (!['admin', 'senior', 'parent'].includes(role)) {
-      return res.status(400).json({ error: 'Role must be admin, senior, or parent.' });
-    }
-    if (role === 'parent') {
-      const ids = Array.isArray(linkedCadetIds) ? linkedCadetIds : [];
-      if (ids.length === 0) {
-        return res.status(400).json({ error: 'A parent account needs at least one linked cadet.' });
-      }
-      for (const cid of ids) {
-        const cadet = await getCadet(cid);
-        if (!cadet) return res.status(400).json({ error: `No cadet with id ${cid}.` });
-      }
-    }
-    const existing = await getUserByEmail(normalized);
-    const record = {
-      email: normalized,
-      name: String(name || normalized).slice(0, 120),
-      role,
-      linkedCadetIds: role === 'parent' ? linkedCadetIds : undefined,
-      cadetId: existing?.cadetId,
-      // Link to their senior-member roster record, if the Admin roster form made one.
-      memberId: role === 'parent' ? undefined : existing?.memberId,
-      createdAt: existing?.createdAt || new Date().toISOString(),
-    };
-    await saveUser(record);
-    return res.status(201).json({ user: record });
+    return res.status(400).json({ error: 'Pass ?loginCode=<email>.' });
   }
 
   return res.status(405).json({ error: 'Method not allowed' });

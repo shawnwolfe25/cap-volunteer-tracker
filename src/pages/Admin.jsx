@@ -1,17 +1,39 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
+import { useAuth } from '../auth/AuthContext.jsx';
 import { LoadingBox, ErrorBox } from './Dashboard.jsx';
 
-export default function Admin() {
-  const [users, setUsers] = useState(null);
-  const [cadets, setCadets] = useState(null);
-  const [error, setError] = useState('');
+const ROLE_LABEL = { cadet: 'Cadet', senior: 'Senior member', admin: 'Admin', parent: 'Parent' };
+const ROLE_BADGE = {
+  cadet: 'bg-sky-100 text-sky-800',
+  senior: 'bg-indigo-100 text-indigo-800',
+  admin: 'bg-cap-gold/25 text-cap-blue',
+  parent: 'bg-emerald-100 text-emerald-800',
+};
+const blankPerson = {
+  memberId: null,
+  origEmail: '',
+  role: 'cadet',
+  firstName: '',
+  lastName: '',
+  email: '',
+  capid: '',
+  linkedCadetIds: [],
+  hasCapid: false,
+  archived: false,
+  isNew: true,
+};
 
-  const [userForm, setUserForm] = useState({ email: '', name: '', role: 'senior', linkedCadetIds: [] });
-  const [userMsg, setUserMsg] = useState('');
-  const emptyMember = { id: '', type: 'cadet', capid: '', firstName: '', lastName: '', email: '' };
-  const [cadetForm, setCadetForm] = useState(emptyMember);
-  const [cadetMsg, setCadetMsg] = useState('');
+export default function Admin() {
+  const { user } = useAuth();
+  const [people, setPeople] = useState(null);
+  const [error, setError] = useState('');
+  const [filter, setFilter] = useState('');
+  const [editing, setEditing] = useState(null); // person being edited, or null
+  const [formMsg, setFormMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+
   const [lookupEmail, setLookupEmail] = useState('');
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupError, setLookupError] = useState('');
@@ -21,13 +43,137 @@ export default function Admin() {
   const [migrateBusy, setMigrateBusy] = useState(false);
 
   function load() {
-    Promise.all([api.adminUsers(), api.cadets(), api.adminMigrateStatus()])
-      .then(([u, c, m]) => {
-        setUsers(u.users);
-        setCadets(c.cadets);
+    Promise.all([api.adminPeople(), api.adminMigrateStatus()])
+      .then(([p, m]) => {
+        setPeople(p.people);
         setMigratePending(m.pending);
       })
       .catch((err) => setError(err.message));
+  }
+
+  useEffect(load, []);
+
+  const cadetRecords = useMemo(
+    () => (people || []).filter((p) => p.memberId && p.onRoster === 'cadet'),
+    [people]
+  );
+
+  const visible = useMemo(() => {
+    if (!people) return [];
+    const q = filter.trim().toLowerCase();
+    if (!q) return people;
+    return people.filter((p) =>
+      `${p.firstName} ${p.lastName} ${p.email} ${ROLE_LABEL[p.role]}`.toLowerCase().includes(q)
+    );
+  }, [people, filter]);
+
+  if (error) return <ErrorBox message={error} />;
+  if (!people) return <LoadingBox />;
+
+  function open(p) {
+    setFormMsg('');
+    setNotice('');
+    setEditing({
+      ...blankPerson,
+      ...p,
+      origEmail: p.hasLogin ? p.email : '',
+      capid: '',
+      linkedCadetIds: p.linkedCadetIds || [],
+      isNew: false,
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function set(field, value) {
+    setEditing((e) => ({ ...e, [field]: value }));
+  }
+
+  async function save(e) {
+    e.preventDefault();
+    setFormMsg('');
+    setBusy(true);
+    try {
+      await api.adminSavePerson({
+        memberId: editing.memberId,
+        origEmail: editing.origEmail || undefined,
+        role: editing.role,
+        firstName: editing.firstName,
+        lastName: editing.lastName,
+        email: editing.email,
+        capid: editing.capid,
+        linkedCadetIds: editing.linkedCadetIds,
+      });
+      setNotice(`Saved ${editing.firstName} ${editing.lastName}.`);
+      setEditing(null);
+      load();
+    } catch (err) {
+      setFormMsg(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleArchive() {
+    const archiving = !editing.archived;
+    const name = `${editing.firstName} ${editing.lastName}`;
+    const msg = archiving
+      ? `Archive ${name}?\n\nTheir hours and report are kept. They drop off the roster and can't sign in or log new hours until restored.`
+      : `Restore ${name} to the active roster?`;
+    if (!confirm(msg)) return;
+    setBusy(true);
+    try {
+      await api.adminArchiveCadet(editing.memberId, archiving);
+      setNotice(`${name} ${archiving ? 'archived' : 'restored'}.`);
+      setEditing(null);
+      load();
+    } catch (err) {
+      setFormMsg(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    const name = `${editing.firstName} ${editing.lastName}`;
+    const parts = [];
+    if (editing.origEmail) parts.push('their login');
+    if (editing.memberId) parts.push('their roster record and ALL of their logged hours');
+    const typed = prompt(
+      `Permanently delete ${name}?\n\nThis removes ${parts.join(' and ')}. It cannot be undone. ` +
+        `If they just left the squadron, Archive keeps their history instead.\n\nType DELETE to confirm.`
+    );
+    if (typed === null) return;
+    if (typed.trim().toUpperCase() !== 'DELETE') {
+      setFormMsg('Not deleted — you have to type DELETE to confirm.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const data = await api.adminDeletePerson({ memberId: editing.memberId, email: editing.origEmail });
+      setNotice(
+        `Deleted ${name}${data.entriesDeleted ? ` and ${data.entriesDeleted} hour entr${data.entriesDeleted === 1 ? 'y' : 'ies'}` : ''}.`
+      );
+      setEditing(null);
+      load();
+    } catch (err) {
+      setFormMsg(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function lookupCode(e) {
+    e.preventDefault();
+    setLookupError('');
+    setLookupResult(null);
+    setLookupBusy(true);
+    try {
+      setLookupResult(await api.adminLoginCode(lookupEmail.trim()));
+    } catch (err) {
+      setLookupError(err.message);
+    } finally {
+      setLookupBusy(false);
+    }
   }
 
   async function migrate() {
@@ -45,154 +191,215 @@ export default function Admin() {
     }
   }
 
-  // Picking someone from the roster fills the form for editing. Their CAPID is never
-  // sent to the browser, so that box stays blank — leave it blank to keep it.
-  function pickMember(id) {
-    const m = cadets.find((c) => c.id === id);
-    if (!m) return setCadetForm({ ...emptyMember, type: cadetForm.type });
-    setCadetForm({ id: m.id, type: m.type, capid: '', firstName: m.firstName, lastName: m.lastName, email: '' });
-  }
-
-  useEffect(load, []);
-
-  async function addUser(e) {
-    e.preventDefault();
-    setUserMsg('');
-    try {
-      await api.adminAddUser(userForm);
-      setUserMsg('Saved. They can sign in with that email now.');
-      setUserForm({ email: '', name: '', role: 'senior', linkedCadetIds: [] });
-      load();
-    } catch (err) {
-      setUserMsg(err.message);
-    }
-  }
-
-  async function addCadet(e) {
-    e.preventDefault();
-    setCadetMsg('');
-    try {
-      const { id, ...rest } = cadetForm;
-      await api.adminAddCadet(id ? cadetForm : rest);
-      setCadetMsg(`${cadetForm.type === 'senior' ? 'Senior member' : 'Cadet'} saved.`);
-      setCadetForm({ ...emptyMember, type: cadetForm.type });
-      load();
-    } catch (err) {
-      setCadetMsg(err.message);
-    }
-  }
-
-  async function lookupCode(e) {
-    e.preventDefault();
-    setLookupError('');
-    setLookupResult(null);
-    setLookupBusy(true);
-    try {
-      const data = await api.adminLoginCode(lookupEmail.trim());
-      setLookupResult(data);
-    } catch (err) {
-      setLookupError(err.message);
-    } finally {
-      setLookupBusy(false);
-    }
-  }
-
-  if (error) return <ErrorBox message={error} />;
-  if (!users || !cadets) return <LoadingBox />;
+  const isSelf = editing && editing.origEmail && editing.origEmail === user.email;
+  const role = editing?.role;
+  const capidRequired = role === 'cadet' && !editing?.memberId;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-8">
       <h1 className="text-lg font-semibold text-cap-blue">Squadron Admin</h1>
 
-      <section className="cap-card p-4 space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Add a senior member or parent account
-        </h2>
-        <form onSubmit={addUser} className="grid sm:grid-cols-2 gap-3">
-          <div>
-            <label className="cap-label">Email</label>
-            <input
-              type="email"
-              required
-              className="cap-input"
-              value={userForm.email}
-              onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
-            />
+      {editing && (
+        <form onSubmit={save} className="cap-card p-4 space-y-4 border-cap-blue">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              {editing.isNew ? 'Add a person' : `Edit ${editing.firstName} ${editing.lastName}`}
+            </h2>
+            <button type="button" className="text-sm underline text-slate-500" onClick={() => setEditing(null)}>
+              Close
+            </button>
           </div>
-          <div>
-            <label className="cap-label">Full name</label>
-            <input
-              type="text"
-              required
-              className="cap-input"
-              value={userForm.name}
-              onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="cap-label">Role</label>
-            <select
-              className="cap-input"
-              value={userForm.role}
-              onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}
-            >
-              <option value="senior">Senior member (can verify any cadet)</option>
-              <option value="parent">Parent / guardian (verifies own cadet only)</option>
-              <option value="admin">Admin (full access)</option>
-            </select>
-          </div>
-          {userForm.role === 'parent' && (
-            <div>
-              <label className="cap-label">Their cadet(s)</label>
-              <select
-                multiple
-                className="cap-input h-24"
-                value={userForm.linkedCadetIds}
-                onChange={(e) =>
-                  setUserForm({
-                    ...userForm,
-                    linkedCadetIds: Array.from(e.target.selectedOptions, (o) => o.value),
-                  })
-                }
-              >
-                {cadets.filter((c) => c.type === 'cadet').map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.firstName} {c.lastName}
-                  </option>
-                ))}
-              </select>
-              <p className="text-[11px] text-slate-400 mt-1">Ctrl/Cmd-click to select more than one.</p>
-            </div>
+
+          {editing.archived && (
+            <p className="text-sm rounded-lg bg-slate-100 border px-3 py-2 text-slate-600">
+              Archived — off the roster, can&rsquo;t sign in or log hours until restored.
+            </p>
           )}
-          <div className="sm:col-span-2 flex items-center gap-3">
-            <button className="cap-btn-primary">Save account</button>
-            {userMsg && <span className="text-sm text-slate-600">{userMsg}</span>}
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="cap-label">Role</label>
+              <select
+                className="cap-input"
+                value={role}
+                disabled={isSelf}
+                onChange={(e) => set('role', e.target.value)}
+              >
+                <option value="cadet">Cadet</option>
+                <option value="senior">Senior member</option>
+                <option value="admin">Admin</option>
+                <option value="parent">Parent / guardian</option>
+              </select>
+              {isSelf && <p className="text-[11px] text-slate-400 mt-1">You can&rsquo;t change your own role.</p>}
+            </div>
+            <div>
+              <label className="cap-label">Email (sign-in){role === 'cadet' ? ' — optional' : ''}</label>
+              <input
+                type="email"
+                className="cap-input"
+                required={role !== 'cadet'}
+                value={editing.email}
+                onChange={(e) => set('email', e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="cap-label">First name</label>
+              <input
+                type="text"
+                required
+                className="cap-input"
+                value={editing.firstName}
+                onChange={(e) => set('firstName', e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="cap-label">Last name</label>
+              <input
+                type="text"
+                required
+                className="cap-input"
+                value={editing.lastName}
+                onChange={(e) => set('lastName', e.target.value)}
+              />
+            </div>
+
+            {role !== 'parent' && (
+              <div>
+                <label className="cap-label">CAPID{role === 'cadet' ? '' : ' — optional'}</label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="new-password"
+                  required={capidRequired}
+                  className="cap-input"
+                  placeholder={editing.hasCapid ? 'On file — leave blank to keep' : ''}
+                  value={editing.capid}
+                  onChange={(e) => set('capid', e.target.value.replace(/\D/g, ''))}
+                />
+                {(role === 'senior' || role === 'admin') && !editing.memberId && (
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Add a CAPID to put them on the Senior Members roster (tracks their hours, lets them sign in with
+                    CAPID).
+                  </p>
+                )}
+              </div>
+            )}
+
+            {role === 'parent' && (
+              <div className="sm:col-span-2">
+                <label className="cap-label">Their cadet(s)</label>
+                <select
+                  multiple
+                  className="cap-input h-28"
+                  value={editing.linkedCadetIds}
+                  onChange={(e) => set('linkedCadetIds', Array.from(e.target.selectedOptions, (o) => o.value))}
+                >
+                  {cadetRecords.map((c) => (
+                    <option key={c.memberId} value={c.memberId}>
+                      {c.lastName}, {c.firstName}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-400 mt-1">Ctrl/Cmd-click to select more than one.</p>
+              </div>
+            )}
+          </div>
+
+          {!editing.isNew && editing.memberId && role !== 'parent' && (
+            <p className="text-xs text-slate-500">
+              Their logged hours stay with them when you change role
+              {role === 'cadet' ? ' (they show on the Cadets tab)' : ' (they show on the Senior Members tab)'}.
+            </p>
+          )}
+
+          {formMsg && <p className="text-sm text-cap-red">{formMsg}</p>}
+          <div className="flex flex-wrap items-center gap-3">
+            <button className="cap-btn-primary" disabled={busy}>
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+            {!editing.isNew && editing.memberId && (
+              <button type="button" className="cap-btn-outline" disabled={busy} onClick={toggleArchive}>
+                {editing.archived ? 'Restore' : 'Archive'}
+              </button>
+            )}
+            {!editing.isNew && !isSelf && (
+              <button
+                type="button"
+                className="ml-auto text-sm text-cap-red underline disabled:opacity-50"
+                disabled={busy}
+                onClick={remove}
+              >
+                Delete permanently
+              </button>
+            )}
           </div>
         </form>
+      )}
 
-        <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Existing accounts</h3>
-          <div className="text-sm divide-y">
-            {users.map((u) => (
-              <div key={u.email} className="py-1.5 flex justify-between">
-                <span>
-                  {u.name} <span className="text-slate-400">&lt;{u.email}&gt;</span>
-                </span>
-                <span className="cap-badge bg-slate-100 text-slate-600 capitalize">{u.role}</span>
-              </div>
-            ))}
+      <section className="cap-card p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            People <span className="normal-case tracking-normal font-normal text-slate-400">({people.length})</span>
+          </h2>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              className="cap-input !py-1 !w-44 text-sm"
+              placeholder="Search name, email, role"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+            <button
+              type="button"
+              className="cap-btn-primary !px-3 !py-1.5 text-xs"
+              onClick={() => {
+                setFormMsg('');
+                setNotice('');
+                setEditing({ ...blankPerson });
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            >
+              + Add person
+            </button>
           </div>
+        </div>
+        {notice && <p className="text-sm text-green-700">{notice}</p>}
+        <p className="text-xs text-slate-400">
+          Click anyone to change their role, email or CAPID, archive them, or delete them. CAPIDs are never shown
+          &mdash; &ldquo;CAPID ✓&rdquo; just means one is on file.
+        </p>
+        <div className="divide-y text-sm">
+          {visible.map((p) => (
+            <button
+              key={p.memberId || p.email}
+              type="button"
+              onClick={() => open(p)}
+              className={`w-full text-left py-2 px-1 flex flex-wrap items-center gap-x-3 gap-y-1 hover:bg-slate-50 ${
+                p.archived ? 'opacity-60' : ''
+              }`}
+            >
+              <span className="font-medium text-slate-800 min-w-[10rem]">
+                {p.lastName}, {p.firstName}
+              </span>
+              <span className={`cap-badge ${ROLE_BADGE[p.role] || 'bg-slate-100 text-slate-600'}`}>
+                {ROLE_LABEL[p.role] || p.role}
+              </span>
+              {p.hasCapid && <span className="cap-badge bg-slate-100 text-slate-500">CAPID ✓</span>}
+              {p.archived && <span className="cap-badge bg-slate-200 text-slate-600">Archived</span>}
+              {!p.hasLogin && <span className="cap-badge bg-amber-50 text-amber-700">No login</span>}
+              <span className="text-slate-400 text-xs truncate ml-auto">{p.email}</span>
+            </button>
+          ))}
+          {visible.length === 0 && <p className="py-3 text-slate-400">No one matches.</p>}
         </div>
       </section>
 
       <section className="cap-card p-4 space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Look up a pending login code
-        </h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Look up a pending login code</h2>
         <p className="text-xs text-slate-400">
-          If someone's login email never arrives (some .gov/.cap.gov inboxes block it), have them tap
-          &ldquo;Email me a login code&rdquo; on the sign-in screen first, then look their code up here and
-          call or text it to them. It still expires in 15 minutes like a normal code.
+          If someone's login email never arrives (some .gov/.cap.gov inboxes block it), have them tap &ldquo;Email me
+          a login code&rdquo; on the sign-in screen first, then look their code up here and call or text it to them.
+          It still expires in 15 minutes like a normal code.
         </p>
         <form onSubmit={lookupCode} className="flex flex-col sm:flex-row gap-3 sm:items-end">
           <div className="flex-1">
@@ -224,99 +431,10 @@ export default function Admin() {
         )}
       </section>
 
-      <section className="cap-card p-4 space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Add / update a cadet or senior member
-        </h2>
-        <form onSubmit={addCadet} className="grid sm:grid-cols-2 gap-3">
-          <div>
-            <label className="cap-label">Roster</label>
-            <select
-              className="cap-input"
-              value={cadetForm.type}
-              disabled={Boolean(cadetForm.id)}
-              onChange={(e) => setCadetForm({ ...emptyMember, type: e.target.value })}
-            >
-              <option value="cadet">Cadet</option>
-              <option value="senior">Senior member</option>
-            </select>
-          </div>
-          <div>
-            <label className="cap-label">Who</label>
-            <select className="cap-input" value={cadetForm.id} onChange={(e) => pickMember(e.target.value)}>
-              <option value="">+ New {cadetForm.type === 'senior' ? 'senior member' : 'cadet'}</option>
-              {cadets
-                .filter((c) => c.type === cadetForm.type)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.lastName}, {c.firstName}
-                    {c.archived ? ' (archived)' : ''}
-                  </option>
-                ))}
-            </select>
-          </div>
-          <div>
-            <label className="cap-label">CAPID</label>
-            <input
-              type="password"
-              inputMode="numeric"
-              autoComplete="new-password"
-              required={!cadetForm.id}
-              className="cap-input"
-              placeholder={cadetForm.id ? 'On file — leave blank to keep' : ''}
-              value={cadetForm.capid}
-              onChange={(e) => setCadetForm({ ...cadetForm, capid: e.target.value.replace(/\D/g, '') })}
-            />
-          </div>
-          <div>
-            <label className="cap-label">Email (for login)</label>
-            <input
-              type="email"
-              className="cap-input"
-              placeholder={cadetForm.id ? 'Leave blank to keep current' : ''}
-              value={cadetForm.email}
-              onChange={(e) => setCadetForm({ ...cadetForm, email: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="cap-label">First name</label>
-            <input
-              type="text"
-              required
-              className="cap-input"
-              value={cadetForm.firstName}
-              onChange={(e) => setCadetForm({ ...cadetForm, firstName: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="cap-label">Last name</label>
-            <input
-              type="text"
-              required
-              className="cap-input"
-              value={cadetForm.lastName}
-              onChange={(e) => setCadetForm({ ...cadetForm, lastName: e.target.value })}
-            />
-          </div>
-          <div className="sm:col-span-2 flex items-center gap-3">
-            <button className="cap-btn-primary">Save</button>
-            {cadetForm.id && (
-              <button type="button" className="text-sm underline text-slate-500" onClick={() => pickMember('')}>
-                Cancel edit
-              </button>
-            )}
-            {cadetMsg && <span className="text-sm text-slate-600">{cadetMsg}</span>}
-          </div>
-        </form>
-        <p className="text-xs text-slate-400">
-          CAPIDs are only used to sign in. They&rsquo;re never shown anywhere in the app &mdash; not here, not on
-          the roster, not on reports. A senior member&rsquo;s email becomes their login (role: senior member); if
-          the email already has a senior or admin account, that account is linked to the roster record instead.
-          Senior members and admins who sign in with their CAPID can only add hours to their own record. Verifying
-          hours, logging for others, and the Admin screen need an email sign-in. Put an admin on the senior roster
-          with their admin email. Nobody can verify their own hours.
-        </p>
-      </section>
+      <p className="text-xs text-slate-400">
+        Senior members and admins who sign in with their CAPID can only add hours to their own record. Verifying
+        hours, logging for others, and this Admin screen need an email sign-in. Nobody can verify their own hours.
+      </p>
 
       {migratePending > 0 && (
         <section className="cap-card p-4 space-y-3 border-amber-300">

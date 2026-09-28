@@ -43,12 +43,17 @@ export const api = {
   updateEntry: (entryId, payload) => request(`/entries/${entryId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteEntry: (entryId) => request(`/entries/${entryId}`, { method: 'DELETE' }),
   pendingEntries: () => request('/entries/pending'),
-  adminUsers: () => request('/admin/users'),
-  adminAddUser: (payload) => request('/admin/users', { method: 'POST', body: JSON.stringify(payload) }),
-  adminAddCadet: (payload) => request('/admin/cadets', { method: 'POST', body: JSON.stringify(payload) }),
+  adminPeople: () => request('/admin/people'),
+  adminSavePerson: (payload) => request('/admin/people', { method: 'POST', body: JSON.stringify(payload) }),
+  adminDeletePerson: ({ memberId, email }) => {
+    const q = new URLSearchParams();
+    if (memberId) q.set('memberId', memberId);
+    if (email) q.set('email', email);
+    return request(`/admin/people?${q}`, { method: 'DELETE' });
+  },
   adminLoginCode: (email) => request(`/admin/users?loginCode=${encodeURIComponent(email)}`),
-  adminArchiveCadet: (id, archived) =>
-    request('/admin/cadets', { method: 'PATCH', body: JSON.stringify({ id, archived }) }),
+  adminArchiveCadet: (memberId, archived) =>
+    request('/admin/people', { method: 'PATCH', body: JSON.stringify({ memberId, archived }) }),
   adminMigrateStatus: () => request('/admin/migrate'),
   adminMigrate: () => request('/admin/migrate', { method: 'POST' }),
   report: (cadetId) => request(`/reports/${cadetId}`),
