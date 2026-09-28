@@ -122,7 +122,7 @@ export default function Login() {
                 Already have a code from your admin?
               </button>
               <button type="button" className="text-xs text-slate-500 underline w-full text-center" onClick={() => go('capid')}>
-                Cadet? Sign in with your CAPID instead
+                Sign in with your CAPID instead
               </button>
             </div>
           </form>
@@ -131,16 +131,17 @@ export default function Login() {
         {stage === 'capid' && (
           <form onSubmit={submitCapid} className="space-y-4">
             <p className="text-sm text-slate-600">
-              Cadets can sign in with their CAPID while we sort out email delivery for some accounts.
+              Cadets and senior members can sign in with their CAPID while we sort out email delivery for
+              some accounts.
             </p>
             <div>
               <label className="cap-label">Your CAPID</label>
               <input
-                type="text"
+                type="password"
                 inputMode="numeric"
+                autoComplete="off"
                 required
                 className="cap-input text-center tracking-[0.2em] text-lg"
-                placeholder="e.g. 774629"
                 value={capid}
                 onChange={(e) => setCapid(e.target.value.replace(/\D/g, ''))}
               />
@@ -154,7 +155,7 @@ export default function Login() {
               className="text-xs text-slate-500 underline w-full text-center"
               onClick={() => go('email')}
             >
-              Senior member or parent? Use email instead
+              Parent or admin? Sign in with email instead
             </button>
           </form>
         )}

@@ -68,6 +68,8 @@ export default async function handler(req, res) {
       role,
       linkedCadetIds: role === 'parent' ? linkedCadetIds : undefined,
       cadetId: existing?.cadetId,
+      // Link to their senior-member roster record, if the Admin roster form made one.
+      memberId: role === 'parent' ? undefined : existing?.memberId,
       createdAt: existing?.createdAt || new Date().toISOString(),
     };
     await saveUser(record);

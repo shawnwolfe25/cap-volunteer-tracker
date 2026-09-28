@@ -70,31 +70,44 @@ export function requireRole(user, roles) {
   return roles.includes(user.role);
 }
 
-export function canVerifyFor(user, cadet) {
-  if (!user || !cadet) return false;
-  if (user.role === 'admin' || user.role === 'senior') return true;
+const isSeniorLike = (user) => user.role === 'admin' || user.role === 'senior';
+
+// The member record this login belongs to, if any: cadets via cadetId, senior members
+// (and admins who are also on the senior roster) via memberId.
+export function ownMemberId(user) {
+  if (!user) return null;
+  return user.role === 'cadet' ? user.cadetId || null : user.memberId || null;
+}
+
+// Who can add a new hour entry to a roster record. Cadets: seniors/admins, the cadet
+// themself, or a linked parent. Senior members: any senior/admin, including their own.
+export function canLogFor(user, member) {
+  if (!user || !member || member.archived) return false;
+  if (isSeniorLike(user)) return true;
+  if (member.type === 'senior') return false;
+  if (user.role === 'cadet') return user.cadetId === member.id;
+  if (user.role === 'parent') return (user.linkedCadetIds || []).includes(member.id);
+  return false;
+}
+
+export function canVerifyFor(user, member) {
+  if (!user || !member) return false;
+  // Nobody verifies, edits, or deletes hours on their own record.
+  if (ownMemberId(user) === member.id) return false;
+  if (isSeniorLike(user)) return true;
+  if (member.type === 'senior') return false;
   if (user.role === 'parent' && Array.isArray(user.linkedCadetIds)) {
-    return user.linkedCadetIds.includes(cadet.id);
+    return user.linkedCadetIds.includes(member.id);
   }
   return false;
 }
 
-export function canEditEntry(user, cadet, entry) {
-  if (!user || !cadet || !entry) return false;
-  if (user.role === 'admin' || user.role === 'senior') return true;
-  // Cadets cannot edit or delete any entry once submitted — integrity control.
-  // They may only add new entries; a senior/parent/admin corrects or removes a bad one.
-  if (user.role === 'parent' && Array.isArray(user.linkedCadetIds) && user.linkedCadetIds.includes(cadet.id)) return true;
-  return false;
-}
-
-// CAPID doubles as a temporary login credential (see /api/auth/login-capid), so it's
-// only shown to the cadet it belongs to, plus admin/senior/parent who need it for
-// recordkeeping and CAPF 2a submission. Other cadets never see a peer's CAPID.
-export function canSeeCapid(user, cadet) {
-  if (!user || !cadet) return false;
-  if (user.role !== 'cadet') return true;
-  return user.cadetId === cadet.id;
+// Cadets cannot edit or delete any entry once submitted — integrity control. They may
+// only add new entries; a senior/parent/admin corrects or removes a bad one. Same rule
+// for a senior member's own record: another senior or admin fixes it.
+export function canEditEntry(user, member, entry) {
+  if (!entry) return false;
+  return canVerifyFor(user, member);
 }
 
 export function sendJson(res, status, body) {

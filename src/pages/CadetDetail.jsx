@@ -18,9 +18,6 @@ export default function CadetDetail() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
-  const canVerify = user && (user.role === 'admin' || user.role === 'senior' ||
-    (user.role === 'parent' && (user.linkedCadetIds || []).includes(id)));
-
   const load = useCallback(() => {
     api
       .cadet(id)
@@ -35,8 +32,10 @@ export default function CadetDetail() {
   if (error) return <ErrorBox message={error} />;
   if (!data) return <LoadingBox />;
 
-  const { cadet, entries, summary, progress, canLogForThisCadet, canArchive } = data;
-  const isSeniorLike = user.role === 'admin' || user.role === 'senior';
+  const { cadet, entries, summary, progress, canLogForThisCadet, canVerify, canAutoVerify, canArchive } = data;
+  const isSenior = cadet.type === 'senior';
+  const noun = isSenior ? 'senior member' : 'cadet';
+  const rosterLink = isSenior ? '/?tab=seniors' : '/';
 
   async function toggleArchive() {
     const archiving = !cadet.archived;
@@ -61,7 +60,7 @@ export default function CadetDetail() {
     }
     setSubmitting(true);
     try {
-      await api.addEntry(id, { ...form, hours: Number(form.hours), autoVerify: isSeniorLike && autoVerify });
+      await api.addEntry(id, { ...form, hours: Number(form.hours), autoVerify: canAutoVerify && autoVerify });
       setForm(emptyForm);
       setAutoVerify(false);
       load();
@@ -77,7 +76,7 @@ export default function CadetDetail() {
     if (action === 'reject') {
       // A cadet can't edit or delete a rejected entry, so tell them why so they can
       // re-log it correctly. Cancel = abort, blank = reject with no reason.
-      const answer = prompt('Reason for rejecting (the cadet will see this):');
+      const answer = prompt(`Reason for rejecting (the ${noun} will see this):`);
       if (answer === null) return;
       note = answer.trim();
     }
@@ -103,7 +102,7 @@ export default function CadetDetail() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-      <Link to="/" className="text-sm text-cap-blue2 hover:underline no-print">
+      <Link to={rosterLink} className="text-sm text-cap-blue2 hover:underline no-print">
         &larr; Back to roster
       </Link>
 
@@ -128,7 +127,7 @@ export default function CadetDetail() {
           <h1 className="text-2xl font-display font-semibold text-cap-blue">
             {cadet.firstName} {cadet.lastName}
           </h1>
-          {cadet.capid && <div className="text-sm text-slate-500 mb-3">CAPID {cadet.capid}</div>}
+          <div className="text-sm text-slate-500 mb-3 capitalize">{noun}</div>
           <ProgressBar
             percent={progress.percentToNext}
             label={
@@ -239,7 +238,7 @@ export default function CadetDetail() {
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />
           </div>
-          {isSeniorLike && (
+          {canAutoVerify && (
             <label className="flex items-center gap-2 text-sm text-slate-600">
               <input type="checkbox" checked={autoVerify} onChange={(e) => setAutoVerify(e.target.checked)} />
               I was present and can verify this on the spot
@@ -269,7 +268,7 @@ export default function CadetDetail() {
       {canArchive && !cadet.archived && (
         <div className="no-print text-right">
           <button className="text-xs text-slate-400 hover:text-slate-700 underline" onClick={toggleArchive}>
-            Archive this cadet (transferred / aged out)
+            Archive this {noun} ({isSenior ? 'transferred / inactive' : 'transferred / aged out'})
           </button>
         </div>
       )}

@@ -1,5 +1,16 @@
-import { getSessionUser, canSeeCapid, randomToken } from '../_lib/auth.js';
-import { getAllCadets, getEntriesForCadets, summarizeHours, ribbonProgress, saveEntries, entryDateError } from '../_lib/model.js';
+import { getSessionUser, ownMemberId, randomToken } from '../_lib/auth.js';
+import {
+  getAllCadets,
+  getEntriesForCadets,
+  summarizeHours,
+  ribbonProgress,
+  saveEntries,
+  entryDateError,
+  memberType,
+} from '../_lib/model.js';
+
+// The whole roster — cadets and senior members together, each tagged with `type`. The
+// client splits them into tabs. CAPIDs are never included.
 
 export default async function handler(req, res) {
   const user = await getSessionUser(req);
@@ -15,7 +26,7 @@ export default async function handler(req, res) {
         id: c.id,
         firstName: c.firstName,
         lastName: c.lastName,
-        capid: canSeeCapid(user, c) ? c.capid : null,
+        type: memberType(c),
         archived: Boolean(c.archived),
         archivedAt: c.archivedAt || null,
         totalVerified: summary.totalVerified,
@@ -27,9 +38,9 @@ export default async function handler(req, res) {
     return res.status(200).json({ cadets: withStats });
   }
 
-  // Group activity: one entry, many cadets. For events where a bunch of cadets did
-  // the same thing (food pantry, Honor Flight, parade). Admin/senior only. Every
-  // cadet gets an identical entry; fix stragglers individually afterward.
+  // Group activity: one entry, many members. For events where a bunch of cadets and/or
+  // senior members did the same thing (food pantry, Honor Flight, parade). Admin/senior
+  // only. Everyone gets an identical entry; fix stragglers individually afterward.
   if (req.method === 'POST') {
     if (!['admin', 'senior'].includes(user.role)) {
       return res.status(403).json({ error: 'Only senior members and admins can log group activities.' });
@@ -37,8 +48,8 @@ export default async function handler(req, res) {
 
     const { cadetIds, date, hours, activity, organization, location, notes, autoVerify } = req.body || {};
     const ids = Array.isArray(cadetIds) ? [...new Set(cadetIds.map(String))] : [];
-    if (ids.length === 0) return res.status(400).json({ error: 'Pick at least one cadet.' });
-    if (ids.length > 200) return res.status(400).json({ error: 'Too many cadets in one batch.' });
+    if (ids.length === 0) return res.status(400).json({ error: 'Pick at least one person.' });
+    if (ids.length > 200) return res.status(400).json({ error: 'Too many people in one batch.' });
 
     const h = Number(hours);
     if (!date || !activity || !h || h <= 0 || h > 24) {
@@ -57,30 +68,35 @@ export default async function handler(req, res) {
       else if (c.archived) skipped.push({ id, name: `${c.firstName} ${c.lastName}`, reason: 'archived' });
       else targets.push(c);
     }
-    if (targets.length === 0) return res.status(400).json({ error: 'None of the selected cadets can be logged.', skipped });
+    if (targets.length === 0) return res.status(400).json({ error: 'None of the selected people can be logged.', skipped });
 
     const now = new Date().toISOString();
     const batchId = randomToken(6); // ties the group together for anyone auditing later
-    const verified = Boolean(autoVerify);
-    const entries = targets.map((c) => ({
-      id: randomToken(10),
-      cadetId: c.id,
-      date,
-      hours: h,
-      activity: String(activity).slice(0, 200),
-      organization: String(organization || '').slice(0, 200),
-      location: String(location || '').slice(0, 200),
-      notes: String(notes || '').slice(0, 1000),
-      status: verified ? 'verified' : 'pending',
-      submittedBy: user.email,
-      submittedByName: user.name,
-      submittedAt: now,
-      groupBatchId: batchId,
-      verifiedBy: verified ? user.email : null,
-      verifiedByName: verified ? user.name : null,
-      verifiedAt: verified ? now : null,
-      verifierNote: verified ? 'Logged and verified by senior member present at the activity.' : null,
-    }));
+    const own = ownMemberId(user);
+    const entries = targets.map((c) => {
+      // Spot verification covers everyone but the person logging it — their own
+      // entry waits for another senior or admin, same as a single entry would.
+      const verified = Boolean(autoVerify) && c.id !== own;
+      return {
+        id: randomToken(10),
+        cadetId: c.id,
+        date,
+        hours: h,
+        activity: String(activity).slice(0, 200),
+        organization: String(organization || '').slice(0, 200),
+        location: String(location || '').slice(0, 200),
+        notes: String(notes || '').slice(0, 1000),
+        status: verified ? 'verified' : 'pending',
+        submittedBy: user.email,
+        submittedByName: user.name,
+        submittedAt: now,
+        groupBatchId: batchId,
+        verifiedBy: verified ? user.email : null,
+        verifiedByName: verified ? user.name : null,
+        verifiedAt: verified ? now : null,
+        verifierNote: verified ? 'Logged and verified by senior member present at the activity.' : null,
+      };
+    });
 
     await saveEntries(entries);
     return res.status(201).json({

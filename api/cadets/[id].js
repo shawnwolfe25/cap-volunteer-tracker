@@ -1,4 +1,4 @@
-import { randomToken, getSessionUser, canSeeCapid } from '../_lib/auth.js';
+import { randomToken, getSessionUser, canLogFor, canVerifyFor, ownMemberId } from '../_lib/auth.js';
 import {
   getCadet,
   getEntriesForCadet,
@@ -6,42 +6,42 @@ import {
   ribbonProgress,
   saveEntry,
   entryDateError,
+  publicMember,
 } from '../_lib/model.js';
 
+// One roster record — a cadet or a senior member (see `type`).
 export default async function handler(req, res) {
   const user = await getSessionUser(req);
   if (!user) return res.status(401).json({ error: 'Not signed in.' });
 
   const { id } = req.query;
-  const cadet = await getCadet(id);
-  if (!cadet) return res.status(404).json({ error: 'Cadet not found.' });
+  const member = await getCadet(id);
+  if (!member) return res.status(404).json({ error: 'Member not found.' });
+  const isOwnRecord = ownMemberId(user) === member.id;
+  const isSeniorLike = user.role === 'admin' || user.role === 'senior';
 
   if (req.method === 'GET') {
     const entries = await getEntriesForCadet(id);
     const summary = summarizeHours(entries);
     const progress = ribbonProgress(summary.totalVerified);
-    const canLogForThisCadet =
-      !cadet.archived &&
-      (user.role === 'admin' ||
-        user.role === 'senior' ||
-        (user.role === 'cadet' && user.cadetId === cadet.id) ||
-        (user.role === 'parent' && (user.linkedCadetIds || []).includes(cadet.id)));
-    const canArchive = user.role === 'admin' || user.role === 'senior';
-    const cadetOut = canSeeCapid(user, cadet) ? cadet : { ...cadet, capid: null };
-    return res.status(200).json({ cadet: cadetOut, entries, summary, progress, canLogForThisCadet, canArchive });
+    return res.status(200).json({
+      cadet: publicMember(member),
+      entries,
+      summary,
+      progress,
+      canLogForThisCadet: canLogFor(user, member),
+      canVerify: canVerifyFor(user, member),
+      canAutoVerify: isSeniorLike && !isOwnRecord,
+      canArchive: isSeniorLike,
+    });
   }
 
   if (req.method === 'POST') {
-    // Add a new hour entry for this cadet.
-    if (cadet.archived) {
-      return res.status(403).json({ error: 'This cadet is archived. Restore them first to log new hours.' });
+    // Add a new hour entry for this member.
+    if (member.archived) {
+      return res.status(403).json({ error: 'This member is archived. Restore them first to log new hours.' });
     }
-    const canLog =
-      user.role === 'admin' ||
-      user.role === 'senior' ||
-      (user.role === 'cadet' && user.cadetId === cadet.id) ||
-      (user.role === 'parent' && (user.linkedCadetIds || []).includes(cadet.id));
-    if (!canLog) return res.status(403).json({ error: 'You cannot log hours for this cadet.' });
+    if (!canLogFor(user, member)) return res.status(403).json({ error: 'You cannot log hours for this member.' });
 
     const { date, hours, activity, organization, location, notes } = req.body || {};
     const h = Number(hours);
@@ -53,7 +53,7 @@ export default async function handler(req, res) {
 
     const entry = {
       id: randomToken(10),
-      cadetId: cadet.id,
+      cadetId: member.id,
       date,
       hours: h,
       activity: String(activity).slice(0, 200),
@@ -70,8 +70,9 @@ export default async function handler(req, res) {
       verifierNote: null,
     };
 
-    // Admin/senior can log and self-verify in one step if they were physically present.
-    if ((user.role === 'admin' || user.role === 'senior') && req.body?.autoVerify) {
+    // Admin/senior can log and self-verify in one step if they were physically present —
+    // but never on their own record; someone else has to sign off on those.
+    if (isSeniorLike && !isOwnRecord && req.body?.autoVerify) {
       entry.status = 'verified';
       entry.verifiedBy = user.email;
       entry.verifiedByName = user.name;

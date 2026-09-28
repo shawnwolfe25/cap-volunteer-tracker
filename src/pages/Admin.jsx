@@ -9,20 +9,48 @@ export default function Admin() {
 
   const [userForm, setUserForm] = useState({ email: '', name: '', role: 'senior', linkedCadetIds: [] });
   const [userMsg, setUserMsg] = useState('');
-  const [cadetForm, setCadetForm] = useState({ capid: '', firstName: '', lastName: '', email: '' });
+  const emptyMember = { id: '', type: 'cadet', capid: '', firstName: '', lastName: '', email: '' };
+  const [cadetForm, setCadetForm] = useState(emptyMember);
   const [cadetMsg, setCadetMsg] = useState('');
   const [lookupEmail, setLookupEmail] = useState('');
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupError, setLookupError] = useState('');
   const [lookupBusy, setLookupBusy] = useState(false);
+  const [migratePending, setMigratePending] = useState(0);
+  const [migrateMsg, setMigrateMsg] = useState('');
+  const [migrateBusy, setMigrateBusy] = useState(false);
 
   function load() {
-    Promise.all([api.adminUsers(), api.cadets()])
-      .then(([u, c]) => {
+    Promise.all([api.adminUsers(), api.cadets(), api.adminMigrateStatus()])
+      .then(([u, c, m]) => {
         setUsers(u.users);
         setCadets(c.cadets);
+        setMigratePending(m.pending);
       })
       .catch((err) => setError(err.message));
+  }
+
+  async function migrate() {
+    if (!confirm('Move every roster record to a private ID now? Old bookmarked links to cadet pages will stop working.')) return;
+    setMigrateBusy(true);
+    setMigrateMsg('');
+    try {
+      const data = await api.adminMigrate();
+      setMigrateMsg(`Done — ${data.migrated} record${data.migrated === 1 ? '' : 's'} moved.`);
+      load();
+    } catch (err) {
+      setMigrateMsg(err.message);
+    } finally {
+      setMigrateBusy(false);
+    }
+  }
+
+  // Picking someone from the roster fills the form for editing. Their CAPID is never
+  // sent to the browser, so that box stays blank — leave it blank to keep it.
+  function pickMember(id) {
+    const m = cadets.find((c) => c.id === id);
+    if (!m) return setCadetForm({ ...emptyMember, type: cadetForm.type });
+    setCadetForm({ id: m.id, type: m.type, capid: '', firstName: m.firstName, lastName: m.lastName, email: '' });
   }
 
   useEffect(load, []);
@@ -44,9 +72,10 @@ export default function Admin() {
     e.preventDefault();
     setCadetMsg('');
     try {
-      await api.adminAddCadet(cadetForm);
-      setCadetMsg('Cadet saved.');
-      setCadetForm({ capid: '', firstName: '', lastName: '', email: '' });
+      const { id, ...rest } = cadetForm;
+      await api.adminAddCadet(id ? cadetForm : rest);
+      setCadetMsg(`${cadetForm.type === 'senior' ? 'Senior member' : 'Cadet'} saved.`);
+      setCadetForm({ ...emptyMember, type: cadetForm.type });
       load();
     } catch (err) {
       setCadetMsg(err.message);
@@ -126,7 +155,7 @@ export default function Admin() {
                   })
                 }
               >
-                {cadets.map((c) => (
+                {cadets.filter((c) => c.type === 'cadet').map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.firstName} {c.lastName}
                   </option>
@@ -197,24 +226,54 @@ export default function Admin() {
 
       <section className="cap-card p-4 space-y-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Add / update a cadet
+          Add / update a cadet or senior member
         </h2>
         <form onSubmit={addCadet} className="grid sm:grid-cols-2 gap-3">
           <div>
+            <label className="cap-label">Roster</label>
+            <select
+              className="cap-input"
+              value={cadetForm.type}
+              disabled={Boolean(cadetForm.id)}
+              onChange={(e) => setCadetForm({ ...emptyMember, type: e.target.value })}
+            >
+              <option value="cadet">Cadet</option>
+              <option value="senior">Senior member</option>
+            </select>
+          </div>
+          <div>
+            <label className="cap-label">Who</label>
+            <select className="cap-input" value={cadetForm.id} onChange={(e) => pickMember(e.target.value)}>
+              <option value="">+ New {cadetForm.type === 'senior' ? 'senior member' : 'cadet'}</option>
+              {cadets
+                .filter((c) => c.type === cadetForm.type)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.lastName}, {c.firstName}
+                    {c.archived ? ' (archived)' : ''}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div>
             <label className="cap-label">CAPID</label>
             <input
-              type="text"
-              required
+              type="password"
+              inputMode="numeric"
+              autoComplete="new-password"
+              required={!cadetForm.id}
               className="cap-input"
+              placeholder={cadetForm.id ? 'On file — leave blank to keep' : ''}
               value={cadetForm.capid}
-              onChange={(e) => setCadetForm({ ...cadetForm, capid: e.target.value })}
+              onChange={(e) => setCadetForm({ ...cadetForm, capid: e.target.value.replace(/\D/g, '') })}
             />
           </div>
           <div>
-            <label className="cap-label">Cadet email (for login)</label>
+            <label className="cap-label">Email (for login)</label>
             <input
               type="email"
               className="cap-input"
+              placeholder={cadetForm.id ? 'Leave blank to keep current' : ''}
               value={cadetForm.email}
               onChange={(e) => setCadetForm({ ...cadetForm, email: e.target.value })}
             />
@@ -240,15 +299,41 @@ export default function Admin() {
             />
           </div>
           <div className="sm:col-span-2 flex items-center gap-3">
-            <button className="cap-btn-primary">Save cadet</button>
+            <button className="cap-btn-primary">Save</button>
+            {cadetForm.id && (
+              <button type="button" className="text-sm underline text-slate-500" onClick={() => pickMember('')}>
+                Cancel edit
+              </button>
+            )}
             {cadetMsg && <span className="text-sm text-slate-600">{cadetMsg}</span>}
           </div>
         </form>
         <p className="text-xs text-slate-400">
-          The initial 19-cadet roster was loaded by the one-time /api/admin/seed call — see the README. Use this
-          form for new cadets who join later, or to fix a typo.
+          CAPIDs are only used to sign in. They&rsquo;re never shown anywhere in the app &mdash; not here, not on
+          the roster, not on reports. A senior member&rsquo;s email becomes their login (role: senior member); if
+          the email already has a senior or admin account, that account is linked to the roster record instead.
+          Admin accounts always sign in by email, never CAPID.
         </p>
       </section>
+
+      {migratePending > 0 && (
+        <section className="cap-card p-4 space-y-3 border-amber-300">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-700">
+            One-time: hide CAPIDs from page links
+          </h2>
+          <p className="text-sm text-slate-600">
+            {migratePending} roster record{migratePending === 1 ? ' still uses' : 's still use'} the CAPID as its
+            page ID, so it shows up in the address bar. This moves them to private IDs. Hours, reports, parent
+            links, and logins all carry over. Safe to run more than once.
+          </p>
+          <div className="flex items-center gap-3">
+            <button className="cap-btn-primary" onClick={migrate} disabled={migrateBusy}>
+              {migrateBusy ? 'Moving…' : 'Move to private IDs'}
+            </button>
+            {migrateMsg && <span className="text-sm text-slate-600">{migrateMsg}</span>}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

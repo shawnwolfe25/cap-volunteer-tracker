@@ -48,6 +48,14 @@ export default function App() {
             }
           />
           <Route
+            path="/member/:id"
+            element={
+              <RequireAuth>
+                <CadetDetail />
+              </RequireAuth>
+            }
+          />
+          <Route
             path="/report/:id"
             element={
               <RequireAuth>

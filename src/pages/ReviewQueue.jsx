@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../api.js';
+import { api, memberPath } from '../api.js';
 import { LoadingBox, ErrorBox } from './Dashboard.jsx';
 
 export default function ReviewQueue() {
@@ -19,7 +19,7 @@ export default function ReviewQueue() {
   async function act(entryId, action) {
     let note = '';
     if (action === 'reject') {
-      const answer = prompt('Reason for rejecting (the cadet will see this):');
+      const answer = prompt('Reason for rejecting (they will see this):');
       if (answer === null) return;
       note = answer.trim();
     }
@@ -43,9 +43,12 @@ export default function ReviewQueue() {
       {entries.map((entry) => (
         <div key={entry.id} className="cap-card p-4 flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex-1">
-            <Link to={`/cadet/${entry.cadetId}`} className="font-semibold text-cap-blue hover:underline">
+            <Link to={memberPath(entry.cadetId, entry.memberType)} className="font-semibold text-cap-blue hover:underline">
               {entry.cadetName}
             </Link>
+            {entry.memberType === 'senior' && (
+              <span className="ml-2 cap-badge bg-slate-100 text-slate-600">Senior member</span>
+            )}
             <div className="text-sm text-slate-700 mt-0.5">{entry.activity}</div>
             <div className="text-xs text-slate-500">
               {entry.date} &middot; {entry.hours} hrs

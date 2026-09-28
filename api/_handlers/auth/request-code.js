@@ -26,10 +26,13 @@ export default async function handler(req, res) {
       error: 'That email isn’t set up yet. Ask your squadron admin to add you before logging in.',
     });
   }
-  if (user.role === 'cadet' && user.cadetId) {
-    const cadet = await getCadet(user.cadetId);
-    if (cadet?.archived) {
-      return res.status(403).json({ error: 'This cadet account has been archived. Ask your squadron admin if that’s a mistake.' });
+  // Archived cadets can't sign in. Archived senior members can't either — unless they're
+  // an admin, who must never get locked out of the admin screen.
+  const ownId = user.role === 'cadet' ? user.cadetId : user.role === 'senior' ? user.memberId : null;
+  if (ownId) {
+    const member = await getCadet(ownId);
+    if (member?.archived) {
+      return res.status(403).json({ error: 'This account has been archived. Ask your squadron admin if that’s a mistake.' });
     }
   }
 

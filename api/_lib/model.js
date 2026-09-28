@@ -22,6 +22,45 @@ export function ribbonProgress(verifiedHours) {
   };
 }
 
+// Roster records live under cadets:{id} for both cadets and senior members; `type`
+// tells them apart (records made before senior members existed have no type and are
+// cadets). The id is a random token, never the CAPID: ids show up in page URLs and API
+// responses, and the CAPID doubles as a login credential. capid:{capid} -> id is the
+// only way from a CAPID to a record, used by CAPID login and the admin form.
+export const MEMBER_TYPES = ['cadet', 'senior'];
+
+export function memberType(m) {
+  return m?.type === 'senior' ? 'senior' : 'cadet';
+}
+
+// The leading letter matters: Upstash JSON-parses values on read, so an all-digit id
+// would come back as a (possibly rounded) number.
+export function newMemberId() {
+  const arr = new Uint8Array(8);
+  crypto.getRandomValues(arr);
+  return 'm' + Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Everything that leaves the API goes through this. CAPIDs are never sent to the browser.
+export function publicMember(m) {
+  if (!m) return m;
+  const { capid, ...rest } = m;
+  return { ...rest, type: memberType(m) };
+}
+
+// Records created before the switch to private ids used the CAPID as the id.
+export function isLegacyMember(m) {
+  return Boolean(m && m.capid && m.id === m.capid);
+}
+
+export async function getMemberIdByCapid(capid) {
+  const id = await db().get(`capid:${capid}`);
+  if (id) return String(id);
+  // Not migrated yet: the old record is keyed by the CAPID itself.
+  const legacy = await getCadet(capid);
+  return isLegacyMember(legacy) ? legacy.id : null;
+}
+
 export async function getCadet(id) {
   const redis = db();
   const raw = await redis.get(`cadets:${id}`);

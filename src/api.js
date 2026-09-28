@@ -47,7 +47,14 @@ export const api = {
   adminAddUser: (payload) => request('/admin/users', { method: 'POST', body: JSON.stringify(payload) }),
   adminAddCadet: (payload) => request('/admin/cadets', { method: 'POST', body: JSON.stringify(payload) }),
   adminLoginCode: (email) => request(`/admin/users?loginCode=${encodeURIComponent(email)}`),
-  adminArchiveCadet: (capid, archived) =>
-    request('/admin/cadets', { method: 'PATCH', body: JSON.stringify({ capid, archived }) }),
+  adminArchiveCadet: (id, archived) =>
+    request('/admin/cadets', { method: 'PATCH', body: JSON.stringify({ id, archived }) }),
+  adminMigrateStatus: () => request('/admin/migrate'),
+  adminMigrate: () => request('/admin/migrate', { method: 'POST' }),
   report: (cadetId) => request(`/reports/${cadetId}`),
 };
+
+// Page link for a roster record. Senior members get /member/, cadets keep /cadet/.
+export function memberPath(id, type) {
+  return `/${type === 'senior' ? 'member' : 'cadet'}/${id}`;
+}

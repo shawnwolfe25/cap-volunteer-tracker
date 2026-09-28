@@ -9,14 +9,14 @@ export default async function handler(req, res) {
   const entry = await getEntry(id);
   if (!entry) return res.status(404).json({ error: 'Entry not found.' });
   const cadet = await getCadet(entry.cadetId);
-  if (!cadet) return res.status(404).json({ error: 'Cadet not found.' });
+  if (!cadet) return res.status(404).json({ error: 'Member not found.' });
 
   if (req.method === 'PATCH') {
     const action = req.body?.action;
 
     if (action === 'verify' || action === 'reject') {
       if (!canVerifyFor(user, cadet)) {
-        return res.status(403).json({ error: 'You are not authorized to verify hours for this cadet.' });
+        return res.status(403).json({ error: 'You are not authorized to verify hours for this member.' });
       }
       entry.status = action === 'verify' ? 'verified' : 'rejected';
       entry.verifiedBy = user.email;
@@ -58,7 +58,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'DELETE') {
-    // Cadets cannot delete their own entries once submitted — integrity control.
+    // Nobody deletes entries on their own record once submitted — integrity control.
     // Only a senior member, parent (of that cadet), or admin can remove a logged entry.
     const canDelete = canVerifyFor(user, cadet);
     if (!canDelete) return res.status(403).json({ error: 'You cannot delete this entry.' });

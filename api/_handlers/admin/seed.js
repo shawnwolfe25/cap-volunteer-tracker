@@ -1,6 +1,7 @@
 import { db } from '../../_lib/redis.js';
 import { clientIp, rateLimit, TOO_MANY } from '../../_lib/auth.js';
 import { rosterSeed as roster } from '../../../data/roster-seed.js';
+import { getMemberIdByCapid, newMemberId } from '../../_lib/model.js';
 
 // One-time setup endpoint. Run once after deploying (see README) then consider
 // changing SEED_SECRET so it can't be triggered again.
@@ -22,14 +23,14 @@ export default async function handler(req, res) {
   let cadetsSkipped = 0;
 
   for (const c of roster) {
-    const id = c.capid;
-    const exists = await redis.get(`cadets:${id}`);
-    if (exists) {
+    if (await getMemberIdByCapid(c.capid)) {
       cadetsSkipped++;
       continue;
     }
+    const id = newMemberId(); // private id; the CAPID is only reachable via capid:{capid}
     const cadet = {
       id,
+      type: 'cadet',
       capid: c.capid,
       firstName: c.firstName,
       lastName: c.lastName,
@@ -39,6 +40,7 @@ export default async function handler(req, res) {
     };
     await redis.set(`cadets:${id}`, JSON.stringify(cadet));
     await redis.sadd('cadets:index', id);
+    await redis.set(`capid:${c.capid}`, id);
 
     // Create a login account for the cadet using their CAP email on file.
     if (cadet.email) {

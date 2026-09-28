@@ -5,8 +5,14 @@ import { LoadingBox, ErrorBox } from './Dashboard.jsx';
 
 const emptyForm = { date: '', hours: '', activity: '', organization: '', location: '', notes: '' };
 
-// Log one activity for many cadets at once. Admin/senior only (route-guarded in
-// App.jsx and enforced server-side). Everyone selected gets an identical entry.
+// Log one activity for many cadets and/or senior members at once. Admin/senior only
+// (route-guarded in App.jsx and enforced server-side). Everyone selected gets an
+// identical entry.
+const GROUPS = [
+  { type: 'cadet', label: 'Cadets' },
+  { type: 'senior', label: 'Senior Members' },
+];
+
 export default function GroupEntry() {
   const navigate = useNavigate();
   const [cadets, setCadets] = useState(null);
@@ -45,10 +51,10 @@ export default function GroupEntry() {
     });
   }
 
-  function selectAllVisible() {
+  function selectAll(list) {
     setSelected((prev) => {
       const next = new Set(prev);
-      visible.forEach((c) => next.add(c.id));
+      list.forEach((c) => next.add(c.id));
       return next;
     });
   }
@@ -65,13 +71,13 @@ export default function GroupEntry() {
       return;
     }
     if (selected.size === 0) {
-      setFormError('Pick at least one cadet.');
+      setFormError('Pick at least one person.');
       return;
     }
     const names = cadets.filter((c) => selected.has(c.id)).map((c) => `${c.firstName} ${c.lastName}`);
     const ok = confirm(
-      `Log ${form.hours} hrs of "${form.activity}" on ${form.date} for ${selected.size} cadet${
-        selected.size === 1 ? '' : 's'
+      `Log ${form.hours} hrs of "${form.activity}" on ${form.date} for ${selected.size} ${
+        selected.size === 1 ? 'person' : 'people'
       }${autoVerify ? ' (verified on the spot)' : ' (pending verification)'}?\n\n${names.join(', ')}`
     );
     if (!ok) return;
@@ -105,15 +111,16 @@ export default function GroupEntry() {
       <div>
         <h1 className="text-lg font-semibold text-cap-blue">Log a group activity</h1>
         <p className="text-sm text-slate-500">
-          One activity, many cadets. Everyone you check gets the same entry. If someone stayed a different
-          number of hours, log the group first, then adjust theirs from their page.
+          One activity, many people &mdash; cadets, senior members, or both. Everyone you check gets the same
+          entry. If someone stayed a different number of hours, log the group first, then adjust theirs from
+          their page. Your own hours stay pending until another senior member verifies them.
         </p>
       </div>
 
       {result && (
         <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800">
           <div className="font-semibold">
-            Logged for {result.created} cadet{result.created === 1 ? '' : 's'}.
+            Logged for {result.created} {result.created === 1 ? 'person' : 'people'}.
           </div>
           <div className="text-green-700 mt-0.5">{result.cadets.join(', ')}</div>
           {result.skipped?.length > 0 && (
@@ -149,7 +156,7 @@ export default function GroupEntry() {
               />
             </div>
             <div>
-              <label className="cap-label">Hours (each cadet)</label>
+              <label className="cap-label">Hours (each person)</label>
               <input
                 type="number"
                 step="0.25"
@@ -224,7 +231,7 @@ export default function GroupEntry() {
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
               />
-              <button type="button" className="underline text-slate-600" onClick={selectAllVisible}>
+              <button type="button" className="underline text-slate-600" onClick={() => selectAll(visible)}>
                 Select {filter ? 'shown' : 'all'}
               </button>
               <button type="button" className="underline text-slate-600" onClick={clearAll}>
@@ -232,25 +239,39 @@ export default function GroupEntry() {
               </button>
             </div>
           </div>
-          {visible.length === 0 && <p className="text-sm text-slate-400">No cadets match.</p>}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-1">
-            {visible.map((c) => {
-              const on = selected.has(c.id);
-              return (
-                <label
-                  key={c.id}
-                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer select-none ${
-                    on ? 'bg-cap-blue/5 border-cap-blue' : 'bg-white border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <input type="checkbox" checked={on} onChange={() => toggle(c.id)} />
-                  <span className="truncate">
-                    {c.lastName}, {c.firstName}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
+          {visible.length === 0 && <p className="text-sm text-slate-400">No one matches.</p>}
+          {GROUPS.map(({ type, label }) => {
+            const list = visible.filter((c) => c.type === type);
+            if (list.length === 0) return null;
+            return (
+              <div key={type} className="space-y-1">
+                <div className="flex items-center gap-3 pt-1">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</h3>
+                  <button type="button" className="text-xs underline text-slate-500" onClick={() => selectAll(list)}>
+                    Select all {label.toLowerCase()}
+                  </button>
+                </div>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-1">
+                  {list.map((c) => {
+                    const on = selected.has(c.id);
+                    return (
+                      <label
+                        key={c.id}
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer select-none ${
+                          on ? 'bg-cap-blue/5 border-cap-blue' : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <input type="checkbox" checked={on} onChange={() => toggle(c.id)} />
+                        <span className="truncate">
+                          {c.lastName}, {c.firstName}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </section>
 
         {formError && <p className="text-sm text-cap-red">{formError}</p>}
@@ -258,7 +279,7 @@ export default function GroupEntry() {
           <button className="cap-btn-primary" disabled={submitting || selected.size === 0}>
             {submitting
               ? 'Saving…'
-              : `Log for ${selected.size} cadet${selected.size === 1 ? '' : 's'}`}
+              : `Log for ${selected.size} ${selected.size === 1 ? 'person' : 'people'}`}
           </button>
           <p className="text-xs text-slate-400">
             Reminder: only volunteer service outside of CAP-run activities counts toward the ribbon.
