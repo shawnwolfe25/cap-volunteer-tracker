@@ -155,7 +155,7 @@ export default function Login() {
               className="text-xs text-slate-500 underline w-full text-center"
               onClick={() => go('email')}
             >
-              Parent or admin? Sign in with email instead
+              Parent, or admin needing the Admin screen? Sign in with email
             </button>
           </form>
         )}

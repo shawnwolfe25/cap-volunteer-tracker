@@ -1,11 +1,13 @@
-import { createSession, clientIp, rateLimit, TOO_MANY } from '../../_lib/auth.js';
+import { createSession, sessionRole, clientIp, rateLimit, TOO_MANY } from '../../_lib/auth.js';
 import { getCadet, getUserByEmail, getMemberIdByCapid, memberType } from '../../_lib/model.js';
 
 // CAPID sign-in, for while squadron .gov/.cap.gov addresses aren't receiving the emailed
 // login code reliably. A cadet or senior member enters their CAPID and is signed straight
-// into their own account — no email round-trip. Only works when the login account's
-// role matches the roster record: role "cadet" with that cadetId, or role "senior" with
-// that memberId. Admin and parent accounts never sign in this way; they use email + code.
+// into their own account — no email round-trip. Only works when the login account
+// matches the roster record: role "cadet" with that cadetId, or a senior/admin account
+// with that memberId. An admin signed in this way gets senior-member permissions only
+// (log and verify hours, no Admin screen); admin powers need the email sign-in.
+// Parent accounts never sign in this way.
 //
 // CAPIDs are 6-digit and not secret outside this app (the app itself never displays
 // them), so this path is rate limited hard: 10 tries per IP and 5 per CAPID per 15
@@ -34,12 +36,12 @@ export default async function handler(req, res) {
   const user = await getUserByEmail(member.email);
   const matches =
     memberType(member) === 'senior'
-      ? user?.role === 'senior' && user.memberId === member.id
+      ? ['senior', 'admin'].includes(user?.role) && user.memberId === member.id
       : user?.role === 'cadet' && user.cadetId === member.id;
   if (!matches) {
     return res.status(404).json({ error: 'CAPID sign-in isn’t set up for this account. Use your email instead, or ask your admin.' });
   }
 
-  const sessionToken = await createSession(user.email);
-  return res.status(200).json({ sessionToken, user });
+  const sessionToken = await createSession(user.email, 'capid');
+  return res.status(200).json({ sessionToken, user: sessionRole(user, 'capid') });
 }

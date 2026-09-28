@@ -27,7 +27,8 @@ export default async function handler(req, res) {
     });
   }
   // Archived cadets can't sign in. Archived senior members can't either — unless they're
-  // an admin, who must never get locked out of the admin screen.
+  // an admin, who must never get locked out of the admin screen (their CAPID sign-in is
+  // blocked by the archive, though).
   const ownId = user.role === 'cadet' ? user.cadetId : user.role === 'senior' ? user.memberId : null;
   if (ownId) {
     const member = await getCadet(ownId);

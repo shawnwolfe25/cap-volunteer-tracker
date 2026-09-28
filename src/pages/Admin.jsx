@@ -312,7 +312,8 @@ export default function Admin() {
           CAPIDs are only used to sign in. They&rsquo;re never shown anywhere in the app &mdash; not here, not on
           the roster, not on reports. A senior member&rsquo;s email becomes their login (role: senior member); if
           the email already has a senior or admin account, that account is linked to the roster record instead.
-          Admin accounts always sign in by email, never CAPID.
+          An admin on the senior roster (use their admin email) signs in with their CAPID to log hours as a senior
+          member, and with their email for the Admin screen. Their own hours always need another senior to verify.
         </p>
       </section>
 

@@ -43,11 +43,18 @@ export async function rateLimit(key, limit, windowSeconds) {
 
 export const TOO_MANY = { error: 'Too many attempts. Wait 15 minutes and try again.' };
 
-export async function createSession(email) {
+// `via` records how they signed in. An admin who signs in with their CAPID gets a
+// senior-member session: they can log and verify hours, but no Admin screen. Admin
+// powers only come with an email sign-in.
+export async function createSession(email, via = 'email') {
   const redis = db();
   const token = randomToken(24);
-  await redis.set(`session:${token}`, JSON.stringify({ email }), { ex: SESSION_TTL_SECONDS });
+  await redis.set(`session:${token}`, JSON.stringify({ email, via }), { ex: SESSION_TTL_SECONDS });
   return token;
+}
+
+export function sessionRole(user, via) {
+  return via === 'capid' && user.role === 'admin' ? { ...user, role: 'senior' } : user;
 }
 
 export async function getSessionUser(req) {
@@ -62,7 +69,7 @@ export async function getSessionUser(req) {
   const userRaw = await redis.get(`users:${session.email}`);
   if (!userRaw) return null;
   const user = typeof userRaw === 'string' ? JSON.parse(userRaw) : userRaw;
-  return user;
+  return sessionRole(user, session.via);
 }
 
 export function requireRole(user, roles) {
