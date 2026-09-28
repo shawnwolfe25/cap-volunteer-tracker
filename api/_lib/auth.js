@@ -43,9 +43,10 @@ export async function rateLimit(key, limit, windowSeconds) {
 
 export const TOO_MANY = { error: 'Too many attempts. Wait 15 minutes and try again.' };
 
-// `via` records how they signed in. An admin who signs in with their CAPID gets a
-// senior-member session: they can log and verify hours, but no Admin screen. Admin
-// powers only come with an email sign-in.
+// `via` records how they signed in. A senior member or admin who signs in with their
+// CAPID gets a "member" session: they can view the rosters and add hours to their own
+// record, nothing else. Verifying, logging for others, group activities, archiving and
+// the Admin screen all need an email sign-in. Cadets are unaffected (already own-only).
 export async function createSession(email, via = 'email') {
   const redis = db();
   const token = randomToken(24);
@@ -54,7 +55,7 @@ export async function createSession(email, via = 'email') {
 }
 
 export function sessionRole(user, via) {
-  return via === 'capid' && user.role === 'admin' ? { ...user, role: 'senior' } : user;
+  return via === 'capid' && ['senior', 'admin'].includes(user.role) ? { ...user, role: 'member' } : user;
 }
 
 export async function getSessionUser(req) {
@@ -87,10 +88,12 @@ export function ownMemberId(user) {
 }
 
 // Who can add a new hour entry to a roster record. Cadets: seniors/admins, the cadet
-// themself, or a linked parent. Senior members: any senior/admin, including their own.
+// themself, or a linked parent. Senior members: any senior/admin, including their own;
+// a CAPID ("member") session only its own.
 export function canLogFor(user, member) {
   if (!user || !member || member.archived) return false;
   if (isSeniorLike(user)) return true;
+  if (user.role === 'member') return user.memberId === member.id;
   if (member.type === 'senior') return false;
   if (user.role === 'cadet') return user.cadetId === member.id;
   if (user.role === 'parent') return (user.linkedCadetIds || []).includes(member.id);

@@ -131,8 +131,8 @@ export default function Login() {
         {stage === 'capid' && (
           <form onSubmit={submitCapid} className="space-y-4">
             <p className="text-sm text-slate-600">
-              Cadets and senior members can sign in with their CAPID while we sort out email delivery for
-              some accounts.
+              Sign in with your CAPID to add your own volunteer hours. Senior members who need to verify
+              hours or use the Admin screen sign in with email.
             </p>
             <div>
               <label className="cap-label">Your CAPID</label>
@@ -155,7 +155,7 @@ export default function Login() {
               className="text-xs text-slate-500 underline w-full text-center"
               onClick={() => go('email')}
             >
-              Parent, or admin needing the Admin screen? Sign in with email
+              Parent, or verifying hours? Sign in with email
             </button>
           </form>
         )}

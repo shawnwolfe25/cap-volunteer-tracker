@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext.jsx';
 const roleLabel = {
   admin: 'Squadron Admin',
   senior: 'Senior Member',
+  member: 'Senior Member',
   parent: 'Parent / Guardian',
   cadet: 'Cadet',
 };
