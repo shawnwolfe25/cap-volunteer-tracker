@@ -10,6 +10,23 @@ const ROLE_BADGE = {
   admin: 'bg-cap-gold/25 text-cap-blue',
   parent: 'bg-emerald-100 text-emerald-800',
 };
+// Sort orders for the People list. Ties fall back to last name, then first name.
+const ROLE_ORDER = { admin: 0, senior: 1, cadet: 2, parent: 3 };
+const byName = (a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`);
+const SORTS = {
+  name: { label: 'Name', cmp: byName },
+  role: { label: 'Role', cmp: (a, b) => (ROLE_ORDER[a.role] ?? 9) - (ROLE_ORDER[b.role] ?? 9) || byName(a, b) },
+  status: {
+    label: 'Status',
+    // Active first, then no login, then archived.
+    cmp: (a, b) => {
+      const rank = (p) => (p.archived ? 2 : p.hasLogin ? 0 : 1);
+      return rank(a) - rank(b) || byName(a, b);
+    },
+  },
+  email: { label: 'Email', cmp: (a, b) => (a.email || '~').localeCompare(b.email || '~') || byName(a, b) },
+};
+
 const blankPerson = {
   memberId: null,
   origEmail: '',
@@ -29,6 +46,7 @@ export default function Admin() {
   const [people, setPeople] = useState(null);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('');
+  const [sortBy, setSortBy] = useState('name');
   const [editing, setEditing] = useState(null); // person being edited, or null
   const [formMsg, setFormMsg] = useState('');
   const [busy, setBusy] = useState(false);
@@ -61,11 +79,13 @@ export default function Admin() {
   const visible = useMemo(() => {
     if (!people) return [];
     const q = filter.trim().toLowerCase();
-    if (!q) return people;
-    return people.filter((p) =>
-      `${p.firstName} ${p.lastName} ${p.email} ${ROLE_LABEL[p.role]}`.toLowerCase().includes(q)
-    );
-  }, [people, filter]);
+    const matched = q
+      ? people.filter((p) => `${p.firstName} ${p.lastName} ${p.email} ${ROLE_LABEL[p.role]}`.toLowerCase().includes(q))
+      : people;
+    return [...matched].sort(SORTS[sortBy].cmp);
+  }, [people, filter, sortBy]);
+
+  const adminCount = (people || []).filter((p) => p.hasLogin && p.role === 'admin').length;
 
   if (error) return <ErrorBox message={error} />;
   if (!people) return <LoadingBox />;
@@ -192,6 +212,9 @@ export default function Admin() {
   }
 
   const isSelf = editing && editing.origEmail && editing.origEmail === user.email;
+  // The server enforces both of these too; this just keeps the buttons honest.
+  const isLastAdmin = editing && editing.origEmail && editing.role === 'admin' && adminCount <= 1 && !editing.isNew;
+  const roleLocked = isSelf || isLastAdmin;
   const role = editing?.role;
   const capidRequired = role === 'cadet' && !editing?.memberId;
 
@@ -222,7 +245,7 @@ export default function Admin() {
               <select
                 className="cap-input"
                 value={role}
-                disabled={isSelf}
+                disabled={roleLocked}
                 onChange={(e) => set('role', e.target.value)}
               >
                 <option value="cadet">Cadet</option>
@@ -230,7 +253,13 @@ export default function Admin() {
                 <option value="admin">Admin</option>
                 <option value="parent">Parent / guardian</option>
               </select>
-              {isSelf && <p className="text-[11px] text-slate-400 mt-1">You can&rsquo;t change your own role.</p>}
+              {roleLocked && (
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {isSelf
+                    ? 'You can’t change your own role.'
+                    : 'This is the only admin — make someone else an admin first.'}
+                </p>
+              )}
             </div>
             <div>
               <label className="cap-label">Email (sign-in){role === 'cadet' ? ' — optional' : ''}</label>
@@ -322,7 +351,7 @@ export default function Admin() {
                 {editing.archived ? 'Restore' : 'Archive'}
               </button>
             )}
-            {!editing.isNew && !isSelf && (
+            {!editing.isNew && !roleLocked && (
               <button
                 type="button"
                 className="ml-auto text-sm text-cap-red underline disabled:opacity-50"
@@ -362,6 +391,22 @@ export default function Admin() {
               + Add person
             </button>
           </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-slate-500">Sort:</span>
+          {Object.entries(SORTS).map(([key, s]) => (
+            <button
+              key={key}
+              type="button"
+              className={`px-2 py-1 rounded ${sortBy === key ? 'bg-cap-blue text-white' : 'bg-white border'}`}
+              onClick={() => setSortBy(key)}
+            >
+              {s.label}
+            </button>
+          ))}
+          <span className="text-xs text-slate-400 ml-2">
+            {adminCount} admin{adminCount === 1 ? '' : 's'} &middot; there must always be at least one
+          </span>
         </div>
         {notice && <p className="text-sm text-green-700">{notice}</p>}
         <p className="text-xs text-slate-400">
